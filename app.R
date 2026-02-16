@@ -69,7 +69,77 @@ ui <- dashboardPage(
 # --- SERVER SECTION ---
 server <- function(input, output, session) {
   pub_theme <- theme_bw(base_size = 15) + theme(legend.position = "top")
+  # n₂ (nonlinear refractive index) hesaplama fonksiyonu
+  calculate_n2 <- function(delta_T_pv, S, I0, lambda = 1064e-9, n0 = 2.5, L = 1e-3, alpha0 = 0) {
+    # delta_T_pv: Peak-valley transmittance difference
+    # S: Aperture linear transmittance (S = 1 - exp(-2*ra^2/wa^2))
+    # I0: On-axis irradiance at focus (W/m^2)
+    # lambda: Wavelength (m)
+    # n0: Linear refractive index (typical for InSe ~2.5)
+    # L: Sample thickness (m)
+    # alpha0: Linear absorption coefficient (m^-1)
+    
+    # Effective length
+    Leff <- if(alpha0 == 0) L else (1 - exp(-alpha0 * L)) / alpha0
+    
+    # On-axis phase shift
+    delta_phi0 <- delta_T_pv / (0.406 * (1 - S)^0.25)
+    
+    # n2 in m^2/W
+    k <- 2 * pi / lambda
+    n2_m2W <- delta_phi0 / (k * I0 * Leff)
+    
+    # Convert to esu (1 m^2/W = (c*n0)/(40*pi) esu)
+    c <- 3e8  # speed of light in m/s
+    n2_esu <- n2_m2W * (c * n0) / (40 * pi)
+    
+    return(list(
+      delta_phi0 = delta_phi0,
+      n2_m2W = n2_m2W,
+      n2_esu = n2_esu,
+      Leff = Leff
+    ))
+  }
   
+  # β (nonlinear absorption coefficient) hesaplama fonksiyonu
+  calculate_beta <- function(T_z, I0, Leff) {
+    # T_z: Normalized transmittance at focus (open aperture)
+    # I0: On-axis irradiance at focus (W/m^2)
+    # Leff: Effective length (m)
+    
+    # β in m/W
+    beta_mW <- (2 * sqrt(2) * (1 - T_z)) / (I0 * Leff)
+    
+    # Convert to cm/GW (1 m/W = 10^9 cm/GW)
+    beta_cmGW <- beta_mW * 1e9 * 100  # m/W -> cm/GW
+    
+    return(list(
+      beta_mW = beta_mW,
+      beta_cmGW = beta_cmGW
+    ))
+  }
+  
+  # I0 hesaplama (odakta ışın şiddeti)
+  calculate_I0 <- function(P_in, f = 0.2, beam_diameter = 0.005, lambda = 1064e-9) {
+    # P_in: Input power (W)
+    # f: Focal length (m)
+    # beam_diameter: Beam diameter before lens (m)
+    # lambda: Wavelength (m)
+    
+    # Beam waist at focus (Gaussian beam)
+    w0 <- (4 * lambda * f) / (pi * beam_diameter)
+    
+    # Beam area at focus
+    A <- pi * w0^2 / 2  # for Gaussian beam
+    
+    # Intensity (W/m^2)
+    I0 <- (2 * P_in) / A  # peak intensity for Gaussian
+    
+    return(list(
+      w0 = w0,
+      I0 = I0
+    ))
+  }
   # --- Robust Data Processing with Encoding Fix ---
   process_raw <- function(files) {
     req(files)
